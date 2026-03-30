@@ -86,6 +86,12 @@ const storageMapZoomValueKey = "target-map-zoom-level";
 
 // global leaflet map object
 let MapObject = null;
+const isFiniteNumber = (value) => Number.isFinite(Number(value));
+const isValidLatLon = (lat, lon) => isFiniteNumber(lat) && isFiniteNumber(lon);
+const isValidLatLonPoint = (point) =>
+    Array.isArray(point)
+    && point.length === 2
+    && isValidLatLon(point[0], point[1]);
 
 const MapSlider = function ({handleSliderChange}) {
     const marks = [
@@ -306,6 +312,7 @@ const TargetSatelliteMapContainer = ({}) => {
             const velocity = satellitePosition['vel'];
             const paths = satellitePaths;
             const coverage = satelliteCoverage;
+            const hasValidSatellitePoint = isValidLatLon(latitude, longitude);
 
             // generate current positions for the group of satellites
             let currentPos = [];
@@ -344,20 +351,20 @@ const TargetSatelliteMapContainer = ({}) => {
                 />)
             }
 
-            if (showTooltip) {
+            if (hasValidSatellitePoint && showTooltip) {
                 currentPos.push(<Marker key={"marker-" + satelliteId} position={[latitude, longitude]}
                                         icon={satelliteIcon2}>
                     <ThemedLeafletTooltip direction="bottom" offset={[0, 10]} opacity={1} permanent>
                         {satelliteName} - {humanizeAltitude(altitude) + " km, " + humanizeVelocity(velocity) + " km/s"}
                     </ThemedLeafletTooltip>
                 </Marker>);
-            } else {
+            } else if (hasValidSatellitePoint) {
                 currentPos.push(<Marker key={"marker-" + satelliteId} position={[latitude, longitude]}
                                         icon={satelliteIcon2}>
                 </Marker>);
             }
 
-            if (coverage) {
+            if (Array.isArray(coverage) && coverage.length > 0 && coverage.every(isValidLatLonPoint)) {
                 //let coverage = [];
                 //coverage = getSatelliteCoverageCircle(latitude, longitude, altitude, 360);
                 currentCoverage.push(<Polyline
@@ -519,11 +526,11 @@ const TargetSatelliteMapContainer = ({}) => {
                 }}/>
 
                 {sunPos && showSunIcon ? (
-                    <Marker position={sunPos} icon={sunIcon} opacity={0.5}/>
+                    isValidLatLonPoint(sunPos) ? <Marker position={sunPos} icon={sunIcon} opacity={0.5}/> : null
                 ) : null}
 
                 {moonPos && showMoonIcon ? (
-                    <Marker position={moonPos} icon={moonIcon} opacity={0.5}/>
+                    isValidLatLonPoint(moonPos) ? <Marker position={moonPos} icon={moonIcon} opacity={0.5}/> : null
                 ) : null}
 
                 {daySidePolygon.length > 1 && showTerminatorLine && (
