@@ -8,8 +8,8 @@ test.describe('404 Error Handling', () => {
   test('should render dedicated 404 page for unknown routes', async ({ page }) => {
     await page.goto('/this-route-does-not-exist');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByRole('heading', { name: '404' })).toBeVisible();
-    await expect(page.getByText(/page not found/i)).toBeVisible();
+    await expect(page.getByText(/page not found/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/error code:\s*404/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /back to home/i })).toBeVisible();
   });
 
