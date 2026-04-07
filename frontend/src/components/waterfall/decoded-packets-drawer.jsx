@@ -47,7 +47,8 @@ const TimeFormatter = React.memo(function TimeFormatter({ value, nowMs, timezone
         locale,
         options: { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' },
     });
-    const diffInSeconds = Math.floor((nowMs - value) / 1000);
+    // Guard against slight server/client clock skew that can make fresh packets appear in the "future".
+    const diffInSeconds = Math.max(0, Math.floor((nowMs - value) / 1000));
 
     if (diffInSeconds < 60) {
         return <span>{diffInSeconds}s ago ({timeString})</span>;
