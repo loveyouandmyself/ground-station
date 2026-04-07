@@ -73,7 +73,7 @@ const SatelliteMarker = ({
         >
             <TooltipComponent
                 direction="bottom"
-                offset={[0, 15]}
+                offset={isTracking ? [0, 15] : [0, 5]}
                 permanent={true}
                 className={"tooltip-satellite"}
                 interactive={true}
