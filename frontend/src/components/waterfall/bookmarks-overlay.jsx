@@ -19,12 +19,13 @@
     
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import {humanizeFrequency, preciseHumanizeFrequency} from "../common/common.jsx";
+import {preciseHumanizeFrequency} from "../common/common.jsx";
 import { shallowEqual, useDispatch, useSelector } from "react-redux";
 import {
     setBookMarks
 } from "./waterfall-slice.jsx";
 import { useTheme } from '@mui/material/styles';
+import { getBookmarkSourceStyle, normalizeBookmarkSource } from './bookmark-source-styles.js';
 
 
 const BookmarkCanvas = ({
@@ -114,6 +115,7 @@ const BookmarkCanvas = ({
                 a.label !== b.label ||
                 a.color !== b.color ||
                 a.metadata?.type !== b.metadata?.type ||
+                a.metadata?.source !== b.metadata?.source ||
                 a.metadata?.transmitter_id !== b.metadata?.transmitter_id ||
                 a.metadata?.alive !== b.metadata?.alive) {
                 return false;
@@ -124,20 +126,12 @@ const BookmarkCanvas = ({
 
     // Merged effect: Create transmitter, doppler-shifted, and neighboring transmitter bookmarks
     useEffect(() => {
-        const normalizeSource = (source) => {
-            if (typeof source !== 'string') {
-                return 'manual';
-            }
-            const lowered = source.toLowerCase();
-            if (lowered === 'manual' || lowered === 'satdump' || lowered === 'satnogs' || lowered === 'gr-satellites') {
-                return lowered;
-            }
-            return 'manual';
-        };
-
         const isSourceEnabled = (source) => {
-            const normalized = normalizeSource(source);
+            const normalized = normalizeBookmarkSource(source);
             if (!showBookmarkSources) {
+                return true;
+            }
+            if (!Object.prototype.hasOwnProperty.call(showBookmarkSources, normalized)) {
                 return true;
             }
             return Boolean(showBookmarkSources[normalized]);
@@ -156,6 +150,7 @@ const BookmarkCanvas = ({
                 isActive ? theme.palette.success.main : theme.palette.grey[500],
                 {
                     type: 'transmitter',
+                    source: normalizeBookmarkSource(transmitter.source),
                     transmitter_id: transmitter['id'],
                     active: isActive,
                     alive: typeof transmitter.alive === 'boolean' ? transmitter.alive : undefined
@@ -173,6 +168,7 @@ const BookmarkCanvas = ({
                 color: theme.palette.warning.main,
                 metadata: {
                     type: 'doppler_shift',
+                    source: normalizeBookmarkSource(transmitter.source),
                     transmitter_id: transmitter.id,
                     alive: typeof transmitter.alive === 'boolean' ? transmitter.alive : undefined
                 }
@@ -194,6 +190,7 @@ const BookmarkCanvas = ({
                     color: theme.palette.info.main,
                     metadata: {
                         type: 'neighbor_transmitter',
+                        source: normalizeBookmarkSource(tx.source),
                         transmitter_id: tx.id,
                         satellite_norad_id: tx.satellite_norad_id,
                         doppler_shift: tx.doppler_shift,
@@ -254,6 +251,11 @@ const BookmarkCanvas = ({
             return `${truncated}${suffix}`;
         };
 
+        const getLabelAccentColor = (bookmark) => {
+            const sourceStyle = getBookmarkSourceStyle(bookmark.metadata?.source, theme);
+            return sourceStyle.accent;
+        };
+
         // First, identify all transmitter IDs that have doppler shift bookmarks
         // We'll use this to skip the corresponding transmitter bookmarks
         const transmitterIdsWithDoppler = new Set();
@@ -280,6 +282,7 @@ const BookmarkCanvas = ({
 
                 // Calculate x position based on frequency
                 const x = ((bookmark.frequency - startFreq) / freqRange) * canvas.width;
+                const sourceStyle = getBookmarkSourceStyle(bookmark.metadata?.source, theme);
 
                 // Check if this is an inactive transmitter for line styling
                 const isInactiveTransmitter = false; // Neighbors are always active
@@ -300,6 +303,9 @@ const BookmarkCanvas = ({
                 ctx.fillStyle = bookmark.color || theme.palette.info.main;
                 ctx.globalAlpha = 0.85;
                 ctx.fill();
+                ctx.strokeStyle = sourceStyle.accent;
+                ctx.lineWidth = sourceStyle.strokeWidth;
+                ctx.stroke();
 
                 // Variable to store the label bottom Y position for the dotted line
                 let labelBottomY = 0;
@@ -313,7 +319,7 @@ const BookmarkCanvas = ({
                     // Store the bottom edge of the label box (south edge)
                     labelBottomY = labelY + textHeight + padding * 2;
 
-                    const fontSize = '10px';
+                    const fontSize = '9px';
 
                     ctx.font = `${fontSize} Arial`;
                     ctx.fillStyle = bookmark.color || theme.palette.info.main;
@@ -324,7 +330,10 @@ const BookmarkCanvas = ({
                     const ledRadius = 2.5;
                     const ledGap = 5;
                     const ledReserve = hasAliveStatus ? (ledRadius * 2 + ledGap) : 0;
-                    const leftReserve = ledReserve;
+                    const typeIndicatorWidth = 6;
+                    const typeIndicatorGap = 6;
+                    const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
+                    const leftReserve = ledReserve + typeIndicatorReserve;
                     const displayLabel = truncateLabelToWidth(bookmark.label);
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
@@ -357,6 +366,12 @@ const BookmarkCanvas = ({
                     ctx.stroke();
                     ctx.globalAlpha = 1.0;
 
+                    // Type color indicator inside label (left stripe)
+                    ctx.fillStyle = getLabelAccentColor(bookmark);
+                    ctx.globalAlpha = 0.9;
+                    ctx.fillRect(boxLeft + padding, boxTop + 2, typeIndicatorWidth, boxHeight - 4);
+                    ctx.globalAlpha = 1.0;
+
                     // Draw the text
                     ctx.shadowBlur = 2;
                     ctx.shadowColor = theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
@@ -379,9 +394,9 @@ const BookmarkCanvas = ({
 
                     // Draw dotted line from bottom of canvas to south edge of label
                     ctx.beginPath();
-                    ctx.strokeStyle = theme.palette.text.secondary;
+                    ctx.strokeStyle = sourceStyle.accent;
                     ctx.lineWidth = 0.8;
-                    ctx.setLineDash([1.5, 3]);
+                    ctx.setLineDash(sourceStyle.lineDash.length ? sourceStyle.lineDash : [1.5, 3]);
                     ctx.globalAlpha = 0.35;
                     ctx.shadowBlur = 1;
                     ctx.shadowColor = theme.palette.background.paper;
@@ -419,6 +434,7 @@ const BookmarkCanvas = ({
 
                 // Calculate x position based on frequency
                 const x = ((bookmark.frequency - startFreq) / freqRange) * canvas.width;
+                const sourceStyle = getBookmarkSourceStyle(bookmark.metadata?.source, theme);
 
                 // Check if this is an inactive transmitter for line styling
                 const isInactiveTransmitter = bookmark.metadata?.type === 'transmitter' && !bookmark.metadata?.active;
@@ -447,6 +463,9 @@ const BookmarkCanvas = ({
                     ctx.globalAlpha = 1.0;
                     ctx.fill();
                 }
+                ctx.strokeStyle = sourceStyle.accent;
+                ctx.lineWidth = sourceStyle.strokeWidth;
+                ctx.stroke();
 
                 // Check if this is a doppler_shift type bookmark
                 const isDopplerShift = bookmark.metadata?.type === 'doppler_shift';
@@ -468,7 +487,7 @@ const BookmarkCanvas = ({
                     // Check if this is an inactive transmitter or a neighbor transmitter
                     const isInactive = bookmark.metadata?.type === 'transmitter' && !bookmark.metadata?.active;
                     // Use slightly smaller font for neighbor transmitters to differentiate
-                    const fontSize = isInactive ? '9px' : (isNeighborTransmitter ? '10px' : '11px');
+                    const fontSize = isInactive ? '8px' : (isNeighborTransmitter ? '9px' : '10px');
 
                     ctx.font = `${fontSize} Arial`;
                     ctx.fillStyle = bookmark.color || theme.palette.warning.main;
@@ -479,7 +498,10 @@ const BookmarkCanvas = ({
                     const ledRadius = 2.5;
                     const ledGap = 5;
                     const ledReserve = hasAliveStatus ? (ledRadius * 2 + ledGap) : 0;
-                    const leftReserve = ledReserve;
+                    const typeIndicatorWidth = 6;
+                    const typeIndicatorGap = 6;
+                    const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
+                    const leftReserve = ledReserve + typeIndicatorReserve;
                     const displayLabel = truncateLabelToWidth(bookmark.label);
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
@@ -510,6 +532,12 @@ const BookmarkCanvas = ({
                     ctx.stroke();
                     ctx.globalAlpha = 1.0;
 
+                    // Type color indicator inside label (left stripe)
+                    ctx.fillStyle = getLabelAccentColor(bookmark);
+                    ctx.globalAlpha = isInactive ? 0.5 : 0.9;
+                    ctx.fillRect(boxLeft + padding, boxTop + 2, typeIndicatorWidth, boxHeight - 4);
+                    ctx.globalAlpha = 1.0;
+
                     // Draw the text
                     ctx.shadowBlur = 2;
                     ctx.shadowColor = theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
@@ -520,7 +548,7 @@ const BookmarkCanvas = ({
                     ctx.globalAlpha = 1.0;
 
                     if (hasAliveStatus) {
-                        const ledX = boxLeft + padding + ledRadius;
+                        const ledX = boxLeft + padding + typeIndicatorReserve + ledRadius;
                         const ledY = labelY + textHeight / 2;
                         ctx.beginPath();
                         ctx.arc(ledX, ledY, ledRadius, 0, 2 * Math.PI);
@@ -532,9 +560,9 @@ const BookmarkCanvas = ({
 
                     // Draw dotted line from bottom of canvas to south edge of label
                     ctx.beginPath();
-                    ctx.strokeStyle = theme.palette.text.secondary;
+                    ctx.strokeStyle = sourceStyle.accent;
                     ctx.lineWidth = isInactiveTransmitter ? 0.7 : 0.9;
-                    ctx.setLineDash([1.5, 3]);
+                    ctx.setLineDash(sourceStyle.lineDash.length ? sourceStyle.lineDash : [1.5, 3]);
                     ctx.globalAlpha = isInactiveTransmitter ? 0.3 : 0.45;
                     ctx.shadowBlur = 1;
                     ctx.shadowColor = theme.palette.background.paper;
@@ -561,7 +589,7 @@ const BookmarkCanvas = ({
                         b.metadata?.transmitter_id === bookmark.metadata?.transmitter_id
                     );
 
-                    ctx.font = '11px Arial';
+                    ctx.font = '10px Arial';
                     ctx.fillStyle = bookmark.color || theme.palette.info.main;
                     ctx.textAlign = 'center';
 
@@ -577,7 +605,10 @@ const BookmarkCanvas = ({
                     const ledRadius = 2.5;
                     const ledGap = 5;
                     const ledReserve = hasAliveStatus ? (ledRadius * 2 + ledGap) : 0;
-                    const leftReserve = ledReserve;
+                    const typeIndicatorWidth = 6;
+                    const typeIndicatorGap = 6;
+                    const typeIndicatorReserve = typeIndicatorWidth + typeIndicatorGap;
+                    const leftReserve = ledReserve + typeIndicatorReserve;
                     const displayLabel = truncateLabelToWidth(bookmark.label);
                     const textMetrics = ctx.measureText(displayLabel);
                     const textWidth = textMetrics.width;
@@ -608,6 +639,12 @@ const BookmarkCanvas = ({
                     ctx.stroke();
                     ctx.globalAlpha = 1.0;
 
+                    // Type color indicator inside label (left stripe)
+                    ctx.fillStyle = getLabelAccentColor(bookmark);
+                    ctx.globalAlpha = 0.9;
+                    ctx.fillRect(boxLeft + padding, boxTop + 2, typeIndicatorWidth, boxHeight - 4);
+                    ctx.globalAlpha = 1.0;
+
                     // Draw the text
                     ctx.shadowBlur = 2;
                     ctx.shadowColor = theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
@@ -617,7 +654,7 @@ const BookmarkCanvas = ({
                     ctx.fillText(displayLabel, textX, dopplerLabelY + textHeight - padding);
 
                     if (hasAliveStatus) {
-                        const ledX = boxLeft + padding + ledRadius;
+                        const ledX = boxLeft + padding + typeIndicatorReserve + ledRadius;
                         const ledY = dopplerLabelY + textHeight / 2;
                         ctx.beginPath();
                         ctx.arc(ledX, ledY, ledRadius, 0, 2 * Math.PI);
@@ -629,9 +666,9 @@ const BookmarkCanvas = ({
 
                     // Draw dotted line from bottom of canvas to south edge of doppler label
                     ctx.beginPath();
-                    ctx.strokeStyle = theme.palette.text.secondary;
+                    ctx.strokeStyle = sourceStyle.accent;
                     ctx.lineWidth = 0.9;
-                    ctx.setLineDash([1.5, 3]);
+                    ctx.setLineDash(sourceStyle.lineDash.length ? sourceStyle.lineDash : [1.5, 3]);
                     ctx.globalAlpha = 0.45;
                     ctx.shadowBlur = 1;
                     ctx.shadowColor = theme.palette.background.paper;
@@ -647,7 +684,7 @@ const BookmarkCanvas = ({
                 ctx.shadowBlur = 0;
             });
         }
-    }, [bookmarks, centerFrequency, sampleRate, actualWidth, height]);
+    }, [bookmarks, centerFrequency, sampleRate, actualWidth, height, theme]);
 
     return (
         <div
