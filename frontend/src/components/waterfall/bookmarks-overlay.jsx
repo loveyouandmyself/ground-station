@@ -42,6 +42,7 @@ const BookmarkCanvas = ({
     const theme = useTheme();
     const canvasRef = useRef(null);
     const bookmarkContainerRef = useRef(null);
+    const rowAssignmentsRef = useRef(new Map());
     const [actualWidth, setActualWidth] = useState(2048);
     const lastMeasuredWidthRef = useRef(0);
 
@@ -282,6 +283,22 @@ const BookmarkCanvas = ({
                 const shortParts = clusterItems.map((item) => toShortTransmitterName(item.label));
                 const visibleParts = shortParts.slice(0, maxLabelParts);
                 const hiddenCount = Math.max(0, shortParts.length - visibleParts.length);
+                const entityIds = clusterItems
+                    .map((item) => (
+                        item.metadata?.transmitter_id ??
+                        item.metadata?.satellite_norad_id ??
+                        item.label ??
+                        ''
+                    ))
+                    .map((value) => String(value))
+                    .filter(Boolean)
+                    .sort();
+                const anchorEntityId = entityIds[0] || String(primary.label || 'unknown');
+                const clusterRowKey = [
+                    primary.metadata?.type || 'unknown',
+                    primary.metadata?.source || 'unknown',
+                    anchorEntityId
+                ].join('|');
                 const label = clusterItems.length > 1
                     ? `${visibleParts.join(', ')}${hiddenCount > 0 ? ` +${hiddenCount}` : ''}`
                     : primary.label;
@@ -292,9 +309,69 @@ const BookmarkCanvas = ({
                     metadata: {
                         ...primary.metadata,
                         cluster_count: clusterItems.length,
+                        cluster_row_key: clusterRowKey,
                     }
                 };
+            }).sort((a, b) => {
+                if (a.frequency !== b.frequency) {
+                    return a.frequency - b.frequency;
+                }
+                const rowKeyA = String(a.metadata?.cluster_row_key || '');
+                const rowKeyB = String(b.metadata?.cluster_row_key || '');
+                return rowKeyA.localeCompare(rowKeyB);
             });
+        };
+
+        const getDrawKey = (bookmark, layer) => {
+            return `${layer}|${String(bookmark.metadata?.cluster_row_key || bookmark.metadata?.transmitter_id || bookmark.label || bookmark.frequency)}`;
+        };
+
+        const assignProximityRows = (items, layer, nearDistancePx = 72, rowCount = 3) => {
+            const candidates = items
+                .filter((bookmark) => bookmark.frequency >= startFreq && bookmark.frequency <= endFreq)
+                .map((bookmark) => ({
+                    bookmark,
+                    x: ((bookmark.frequency - startFreq) / freqRange) * canvas.width,
+                    key: getDrawKey(bookmark, layer),
+                }))
+                .sort((a, b) => {
+                    if (a.x !== b.x) {
+                        return a.x - b.x;
+                    }
+                    return a.key.localeCompare(b.key);
+                });
+
+            const assigned = new Map();
+            const placed = [];
+
+            candidates.forEach((entry) => {
+                const activeRows = new Set(
+                    placed
+                        .filter((prev) => Math.abs(prev.x - entry.x) <= nearDistancePx)
+                        .map((prev) => prev.row)
+                );
+
+                const cachedRow = rowAssignmentsRef.current.get(entry.key);
+                let row = typeof cachedRow === 'number' ? cachedRow : null;
+                if (row === null || activeRows.has(row)) {
+                    row = null;
+                    for (let candidateRow = 0; candidateRow < rowCount; candidateRow++) {
+                        if (!activeRows.has(candidateRow)) {
+                            row = candidateRow;
+                            break;
+                        }
+                    }
+                    if (row === null) {
+                        row = placed.length % rowCount;
+                    }
+                }
+
+                rowAssignmentsRef.current.set(entry.key, row);
+                assigned.set(entry.key, row);
+                placed.push({ x: entry.x, row });
+            });
+
+            return assigned;
         };
 
         // First, identify all transmitter IDs that have doppler shift bookmarks
@@ -315,8 +392,21 @@ const BookmarkCanvas = ({
             const mainBookmarks = clusterBookmarks(
                 bookmarks.filter(b => b.metadata?.type !== 'neighbor_transmitter')
             );
-
-            let visibleBookmarkIndex = 0;
+            const mainNonDopplerVisible = mainBookmarks.filter((bookmark) =>
+                bookmark.frequency >= startFreq &&
+                bookmark.frequency <= endFreq &&
+                !(bookmark.metadata?.type === 'transmitter' &&
+                    bookmark.metadata?.transmitter_id &&
+                    transmitterIdsWithDoppler.has(bookmark.metadata.transmitter_id))
+            );
+            const dopplerVisible = mainBookmarks.filter((bookmark) =>
+                bookmark.frequency >= startFreq &&
+                bookmark.frequency <= endFreq &&
+                bookmark.metadata?.type === 'doppler_shift'
+            );
+            const neighborRowAssignments = assignProximityRows(neighborBookmarks, 'neighbor');
+            const mainRowAssignments = assignProximityRows(mainNonDopplerVisible, 'main');
+            const dopplerRowAssignments = assignProximityRows(dopplerVisible, 'doppler');
 
             // Draw neighbor transmitters first (bottom layer)
             neighborBookmarks.forEach((bookmark) => {
@@ -359,8 +449,7 @@ const BookmarkCanvas = ({
 
                 // Display label at top with alternating heights
                 if (bookmark.label) {
-                    // Calculate label vertical position based on index
-                    const labelOffset = (visibleBookmarkIndex % 3) * verticalSpacing;
+                    const labelOffset = (neighborRowAssignments.get(getDrawKey(bookmark, 'neighbor')) ?? 0) * verticalSpacing;
                     const labelY = clampLabelY(baseY + labelOffset + 35 + bookmarkLabelOffset + verticalSpacing - 5);
 
                     // Store the bottom edge of the label box (south edge)
@@ -445,16 +534,11 @@ const BookmarkCanvas = ({
                     ctx.globalAlpha = 1.0;
                     ctx.shadowBlur = 0;
 
-                    // Increment the visible bookmark index
-                    visibleBookmarkIndex++;
                 }
 
                 // Reset shadow
                 ctx.shadowBlur = 0;
             });
-
-            // Reset visible index for main bookmarks layer
-            visibleBookmarkIndex = 0;
 
             // Draw main transmitters and doppler markers (top layer)
             mainBookmarks.forEach((bookmark) => {
@@ -514,9 +598,7 @@ const BookmarkCanvas = ({
 
                 // For regular bookmarks and neighbor transmitters - display at top with alternating heights
                 if (bookmark.label && !isDopplerShift) {
-                    // Calculate label vertical position based on index
-                    // Use visibleBookmarkIndex to ensure proper alternating heights (3 rows)
-                    const labelOffset = (visibleBookmarkIndex % 3) * verticalSpacing;
+                    const labelOffset = (mainRowAssignments.get(getDrawKey(bookmark, 'main')) ?? 0) * verticalSpacing;
                     const labelY = clampLabelY(baseY + labelOffset + 35 + bookmarkLabelOffset + verticalSpacing);
 
                     // Store the bottom edge of the label box (south edge)
@@ -611,28 +693,15 @@ const BookmarkCanvas = ({
                     ctx.globalAlpha = 1.0;
                     ctx.shadowBlur = 0;
 
-                    // Increment the visible bookmark index only for non-doppler bookmarks
-                    visibleBookmarkIndex++;
                 }
 
                 // For doppler_shift bookmarks - track their index separately for stacking
                 if (bookmark.label && isDopplerShift) {
-                    // Find the index of this doppler bookmark among all doppler bookmarks
-                    const dopplerBookmarks = mainBookmarks.filter(b =>
-                        b.metadata?.type === 'doppler_shift' &&
-                        b.frequency >= startFreq &&
-                        b.frequency <= endFreq
-                    );
-                    const dopplerIndex = dopplerBookmarks.findIndex(b =>
-                        b.metadata?.transmitter_id === bookmark.metadata?.transmitter_id
-                    );
-
                     ctx.font = '10px Arial';
                     ctx.fillStyle = bookmark.color || theme.palette.info.main;
                     ctx.textAlign = 'center';
 
-                    // Calculate label vertical position based on doppler index (alternating heights - 3 rows)
-                    const dopplerLabelOffset = (dopplerIndex % 3) * verticalSpacing;
+                    const dopplerLabelOffset = (dopplerRowAssignments.get(getDrawKey(bookmark, 'doppler')) ?? 0) * verticalSpacing;
                     const dopplerLabelY = clampLabelY(50 + bookmarkLabelOffset - padding - textHeight + dopplerLabelOffset + verticalSpacing - 30);
 
                     // Store the bottom edge of the doppler label box (south edge)
