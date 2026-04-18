@@ -276,6 +276,16 @@ const CelestialMainLayout = () => {
         : inferredCounts.moons;
     const trackedCount = combinedScene?.celestial?.length || 0;
     const hasSolarScene = (planetsCount + moonsCount) > 0;
+    const tracksProgress = celestialState?.tracksProgress || null;
+    const tracksProgressText = React.useMemo(() => {
+        if (!celestialState?.tracksLoading) return '';
+        const current = Number(tracksProgress?.current);
+        const total = Number(tracksProgress?.total);
+        if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+            return `${Math.max(0, Math.min(current, total))}/${total}`;
+        }
+        return 'Loading...';
+    }, [celestialState?.tracksLoading, tracksProgress?.current, tracksProgress?.total]);
 
     const updateProjectionSetting = React.useCallback((updates) => {
         if (!socket) return;
@@ -323,6 +333,7 @@ const CelestialMainLayout = () => {
                         await dispatch(fetchMonitoredCelestial({ socket }));
                     }}
                     loading={celestialState.tracksLoading}
+                    loadingText={tracksProgressText}
                     disabled={!socket}
                 />
                 <Box sx={{ p: 0, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>

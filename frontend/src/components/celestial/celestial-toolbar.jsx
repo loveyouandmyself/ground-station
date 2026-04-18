@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, CircularProgress, IconButton, Paper, Stack, Tooltip } from '@mui/material';
+import { Box, CircularProgress, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
@@ -13,6 +13,7 @@ const CelestialToolbar = ({
     onZoomOut,
     onZoomReset,
     loading,
+    loadingText = '',
     disabled = false,
 }) => {
     return (
@@ -103,7 +104,12 @@ const CelestialToolbar = ({
                         </Tooltip>
                     </Stack>
                 </Box>
-                <Box sx={{ px: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 32 }}>
+                <Box sx={{ px: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 32, gap: 0.75 }}>
+                    {loading && loadingText ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                            {loadingText}
+                        </Typography>
+                    ) : null}
                     {loading ? <CircularProgress size={16} /> : null}
                 </Box>
             </Box>
