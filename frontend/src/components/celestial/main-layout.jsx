@@ -255,9 +255,27 @@ const CelestialMainLayout = () => {
         };
     }, [celestialState.solarScene, celestialState.celestialTracks]);
 
-    const planetsCount = combinedScene?.planets?.length || 0;
+    const solarBodies = Array.isArray(combinedScene?.planets) ? combinedScene.planets : [];
+    const bodyTypeCounts = combinedScene?.meta?.solar_system?.body_type_counts || {};
+    const inferredCounts = solarBodies.reduce(
+        (acc, body) => {
+            if (body?.body_type === 'moon' || (body?.body_type == null && body?.parent_id)) {
+                acc.moons += 1;
+            } else {
+                acc.planets += 1;
+            }
+            return acc;
+        },
+        { planets: 0, moons: 0 },
+    );
+    const planetsCount = Number.isFinite(Number(bodyTypeCounts?.planet))
+        ? Number(bodyTypeCounts.planet)
+        : inferredCounts.planets;
+    const moonsCount = Number.isFinite(Number(bodyTypeCounts?.moon))
+        ? Number(bodyTypeCounts.moon)
+        : inferredCounts.moons;
     const trackedCount = combinedScene?.celestial?.length || 0;
-    const hasSolarScene = planetsCount > 0;
+    const hasSolarScene = (planetsCount + moonsCount) > 0;
 
     const updateProjectionSetting = React.useCallback((updates) => {
         if (!socket) return;
@@ -327,7 +345,11 @@ const CelestialMainLayout = () => {
                         </Box>
                     )}
                 </Box>
-                <CelestialStatusBar planetsCount={planetsCount} trackedCount={trackedCount} />
+                <CelestialStatusBar
+                    planetsCount={planetsCount}
+                    moonsCount={moonsCount}
+                    trackedCount={trackedCount}
+                />
             </Box>
         </StyledIslandParentNoScrollbar>,
         <StyledIslandParentNoScrollbar key="monitored-celestial">

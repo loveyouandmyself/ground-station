@@ -259,6 +259,7 @@ def _planet_state(name: str, day_offset: float) -> Dict[str, object]:
     return {
         "name": name.capitalize(),
         "id": name,
+        "body_type": "planet",
         "position_xyz_au": [x_helio, y_helio, z_helio],
         "orbital_elements": {
             "semi_major_axis_au": a_au,
@@ -459,6 +460,7 @@ def compute_solar_system_snapshot(
         {
             "name": "Moon",
             "id": "moon",
+            "body_type": "moon",
             "parent_id": "earth",
             "position_xyz_au": moon_pos,
             "velocity_xyz_au_per_day": _velocity_from_finite_difference("moon", day_offset),
@@ -478,6 +480,7 @@ def compute_solar_system_snapshot(
             {
                 "name": cast(str, moon["name"]),
                 "id": moon_id,
+                "body_type": "moon",
                 "parent_id": "jupiter",
                 "position_xyz_au": _body_position_au(moon_id, day_offset),
                 "velocity_xyz_au_per_day": _velocity_from_finite_difference(moon_id, day_offset),
@@ -496,6 +499,7 @@ def compute_solar_system_snapshot(
             {
                 "name": cast(str, moon["name"]),
                 "id": moon_id,
+                "body_type": "moon",
                 "parent_id": "saturn",
                 "position_xyz_au": _body_position_au(moon_id, day_offset),
                 "velocity_xyz_au_per_day": _velocity_from_finite_difference(moon_id, day_offset),
@@ -509,10 +513,16 @@ def compute_solar_system_snapshot(
             }
         )
 
+    body_type_counts: Dict[str, int] = {}
+    for body in planets:
+        body_type = str(body.get("body_type") or "unknown")
+        body_type_counts[body_type] = body_type_counts.get(body_type, 0) + 1
+
     meta: Dict[str, object] = {
         "source": "offline-analytic-kepler",
         "reference": "J2000 low-precision orbital elements",
         "epoch_utc": epoch.astimezone(timezone.utc).isoformat(),
+        "body_type_counts": body_type_counts,
     }
 
     return meta, planets
